@@ -1,0 +1,3 @@
+[submodule "Packages/com.kvd.utils"]
+	path = Packages/com.kvd.utils
+	url = https://github.com/KamilVDono/com.kvd.utils.git

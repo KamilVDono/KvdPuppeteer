@@ -58,6 +58,20 @@ namespace AclUnity
             stretch = 1f;
             userDefined = 0;
         }
+
+        public float4x4 ToFloat4x4()
+        {
+            return float4x4.TRS(position, rotation, stretch);
+        }
+
+        public float3x4 ToOrthonormal()
+        {
+            var r = math.float3x3(rotation);
+            return new float3x4(r.c0 * stretch.x,
+                                r.c1 * stretch.y,
+                                r.c2 * stretch.z,
+                                position);
+        }
     }
 
     [StructLayout(LayoutKind.Explicit, Size = 16)]

@@ -1,0 +1,133 @@
+#pragma kernel CSSkinning
+
+#include "../Matrices.hlsl"
+#include "SkinningUtils.hlsl"
+
+struct BoneWeight
+{
+    uint2 boneIndices;
+    uint2 boneWeights;
+};
+
+struct SkinningVerticesDatum
+{
+    uint vertexIndexAndRendererIndex;
+};
+
+struct RendererDatum
+{
+    uint meshStart;
+    uint bonesStart;
+};
+
+// Maybe packed
+struct BlendshapesInstanceDatum
+{
+    uint startAndLengthOfWeights;
+};
+
+struct BlendshapeIndexAndWeight
+{
+    uint index;
+    float weight;
+};
+
+void AddDeltaToVertex(const Vertex originalVertex, inout Vertex vertex, BlendshapeDeltas delta, float weight)
+{
+    const uint2 uPosition = delta.positionDelta;
+    const half positionX = f16tof32(uPosition.x & 0x0000FFFF);
+    const half positionY = f16tof32(uPosition.x >> 16);
+    const half positionZ = f16tof32(uPosition.y & 0x0000FFFF);
+
+    float3 finalNormal;
+    float3 finalTangent;
+    DecodeNormalAndTangent(delta.normalAndTangentDelta, finalNormal, finalTangent);
+
+    const float3 positionDelta = float3(positionX, positionY, positionZ);
+    const float3 normalDelta = finalNormal - originalVertex.normal;
+    const float3 tangentDelta = finalTangent - originalVertex.tangent;
+
+    vertex.position += positionDelta * weight;
+    vertex.normal += normalDelta * weight;
+    vertex.tangent += tangentDelta * weight;
+}
+
+// -- Global buffers
+StructuredBuffer<Bone> _Bones;
+StructuredBuffer<BlendshapeDeltas> _BlendshapesDeltas;
+// -- Per global vertex
+StructuredBuffer<BoneWeight> _BoneWeights;
+StructuredBuffer<CompressedVertex> _OriginalVertices;
+StructuredBuffer<SkinningVerticesDatum> _SkinningVerticesData;
+int _VertexCount;
+// -- Per dispatch
+int _VertexOffset;
+
+// Global linear per frame
+StructuredBuffer<BlendshapeIndexAndWeight> _BlendshapeIndicesAndWeights;
+// Per renderer
+StructuredBuffer<BlendshapesInstanceDatum> _BlendshapeData;
+StructuredBuffer<RendererDatum> _RenderersData;
+
+RWByteAddressBuffer _OutputVertices;
+
+[numthreads(256, 1, 1)]
+void CSSkinning (uint3 id : SV_DispatchThreadID)
+{
+    const uint vertexId = id.x + _VertexOffset;
+    if(vertexId >= _VertexCount)
+    {
+        return;
+    }
+    const SkinningVerticesDatum data = _SkinningVerticesData[vertexId];
+    const uint vertexIndex = data.vertexIndexAndRendererIndex & 0xFFFF;
+    const uint rendererIndex = data.vertexIndexAndRendererIndex >> 16;
+
+    const RendererDatum rendererDatum = _RenderersData[rendererIndex];
+
+    const uint globalVertexIndex = rendererDatum.meshStart + vertexIndex;
+
+    const CompressedVertex compressedVertex = _OriginalVertices[globalVertexIndex];
+    Vertex vertex;
+    vertex.position = compressedVertex.position;
+    DecodeNormalAndTangent(compressedVertex.normalAndTangent, vertex.normal, vertex.tangent);
+    const Vertex originalVertex = vertex;
+
+    const uint boneOffset = rendererDatum.bonesStart;
+
+    // BlendshapesInstanceDatum instanceData = _BlendshapeData[rendererIndex];
+    // const uint weightsStart = instanceData.startAndLengthOfWeights & 0xFFFF;
+    // const uint weightsLength = instanceData.startAndLengthOfWeights >> 16;
+    //
+    // const uint iterationEnd = weightsStart + weightsLength;
+    // for(uint i = weightsStart; i < iterationEnd; i++)
+    // {
+    //     const BlendshapeIndexAndWeight indexAndWeight = _BlendshapeIndicesAndWeights[i];
+    //     const BlendshapeDeltas delta = _BlendshapesDeltas[indexAndWeight.index+vertexIndex];
+    //     AddDeltaToVertex(originalVertex, vertex, delta, indexAndWeight.weight);
+    // }
+
+    vertex.normal = normalize(vertex.normal);
+    vertex.tangent = normalize(vertex.tangent);
+
+    const BoneWeight boneWeight = _BoneWeights[globalVertexIndex];
+    const uint2 boneIndices = boneWeight.boneIndices;
+    const uint2 boneWeights = boneWeight.boneWeights;
+    const float3x4 skinTransform = _Bones[BoneIndex0(boneIndices) + boneOffset].boneTransform * BoneWeight0(boneWeights) +
+                                   _Bones[BoneIndex1(boneIndices) + boneOffset].boneTransform * BoneWeight1(boneWeights) +
+                                   _Bones[BoneIndex2(boneIndices) + boneOffset].boneTransform * BoneWeight2(boneWeights) +
+                                   _Bones[BoneIndex3(boneIndices) + boneOffset].boneTransform * BoneWeight3(boneWeights);
+
+    CompressedVertex compressed_vertex;
+
+    compressed_vertex.position = mul(skinTransform, float4(vertex.position, 1.0)).xyz;
+    const float3 normal = normalize(mul(skinTransform, float4(vertex.normal, 0.0)).xyz);
+    const float3 tangent = normalize(mul(skinTransform, float4(vertex.tangent, 0.0)).xyz);
+
+    const uint2 normalAndTangent = EncodeNormalAndTangent(normal, tangent);
+    compressed_vertex.normalAndTangent = normalAndTangent;
+
+    uint bytesStart = vertexId * (12 + 8);
+    _OutputVertices.Store3(bytesStart + 0, asuint(compressed_vertex.position));
+    _OutputVertices.Store2(bytesStart + 12, compressed_vertex.normalAndTangent);
+}

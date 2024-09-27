@@ -1,0 +1,21 @@
+{
+    "name": "KVD.Kandra",
+    "rootNamespace": "",
+    "references": [
+        "GUID:59ecb471de80f35478a4ac410fa00fcf",
+        "GUID:d8b63aba1907145bea998dd612889d6b",
+        "GUID:2665a8d13d1b3f18800f46e256720795",
+        "GUID:e0cd26848372d4e5c891c569017e11f1",
+        "GUID:d6a52764f605b0546b75109d6c69ad58",
+        "GUID:a655924d5e83d054fb97f0b7d01a12ea"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

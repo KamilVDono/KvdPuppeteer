@@ -47,11 +47,13 @@ namespace AclUnity
             }
         }
 
-        public static void SamplePoseBlendedFirst(void*                     compressedTransformsClip,
-                                                  NativeArray<Qvvs>         outputBuffer,
-                                                  float blendFactor,
-                                                  float time,
-                                                  KeyframeInterpolationMode keyframeInterpolationMode)
+        public static void SamplePoseBlendedFirst(
+            void* compressedTransformsClip,
+            Qvvs* outputBufferPtr,
+            int outputBufferCount,
+            float blendFactor,
+            float time,
+            KeyframeInterpolationMode keyframeInterpolationMode)
         {
             CheckCompressedClipIsValid(compressedTransformsClip);
 
@@ -62,32 +64,30 @@ namespace AclUnity
                 ThrowIfWrongType();
             }
 
-            CheckOutputArrayIsSufficient(outputBuffer, header.trackCount);
+            CheckOutputArrayIsSufficient(outputBufferCount, header.trackCount);
 
-            compressedTransformsClip   = (byte*)compressedTransformsClip + 16;
-            void* compressedScalesClip = header.clipType ==
-                                         ClipHeader.ClipType.SkeletonWithUniformScales ? (byte*)compressedTransformsClip + header.offsetToUniformScalesStartInBytes : null;
+            compressedTransformsClip = (byte*)compressedTransformsClip+16;
+            void* compressedScalesClip = header.clipType == ClipHeader.ClipType.SkeletonWithUniformScales ?
+                (byte*)compressedTransformsClip+header.offsetToUniformScalesStartInBytes :
+                null;
 
             if (X86.Avx2.IsAvx2Supported)
             {
-                AVX.samplePoseBlendedFirst(compressedTransformsClip, compressedScalesClip, (float*)outputBuffer.GetUnsafePtr(), blendFactor, time, (byte)keyframeInterpolationMode);
+                AVX.samplePoseBlendedFirst(compressedTransformsClip, compressedScalesClip, (float*)outputBufferPtr, blendFactor, time, (byte)keyframeInterpolationMode);
             }
             else
             {
-                NoExtensions.samplePoseBlendedFirst(compressedTransformsClip,
-                                                    compressedScalesClip,
-                                                    (float*)outputBuffer.GetUnsafePtr(),
-                                                    blendFactor,
-                                                    time,
-                                                    (byte)keyframeInterpolationMode);
+                NoExtensions.samplePoseBlendedFirst(compressedTransformsClip, compressedScalesClip, (float*)outputBufferPtr, blendFactor, time, (byte)keyframeInterpolationMode);
             }
         }
 
-        public static void SamplePoseBlendedAdd(void*                     compressedTransformsClip,
-                                                NativeArray<Qvvs>         outputBuffer,
-                                                float blendFactor,
-                                                float time,
-                                                KeyframeInterpolationMode keyframeInterpolationMode)
+        public static void SamplePoseBlendedAdd(
+            void* compressedTransformsClip,
+            Qvvs* outputBufferPtr,
+            int outputBufferCount,
+            float blendFactor,
+            float time,
+            KeyframeInterpolationMode keyframeInterpolationMode)
         {
             CheckCompressedClipIsValid(compressedTransformsClip);
 
@@ -98,24 +98,20 @@ namespace AclUnity
                 ThrowIfWrongType();
             }
 
-            CheckOutputArrayIsSufficient(outputBuffer, header.trackCount);
+            CheckOutputArrayIsSufficient(outputBufferCount, header.trackCount);
 
-            compressedTransformsClip   = (byte*)compressedTransformsClip + 16;
-            void* compressedScalesClip = header.clipType ==
-                                         ClipHeader.ClipType.SkeletonWithUniformScales ? (byte*)compressedTransformsClip + header.offsetToUniformScalesStartInBytes : null;
+            compressedTransformsClip = (byte*)compressedTransformsClip+16;
+            void* compressedScalesClip = header.clipType == ClipHeader.ClipType.SkeletonWithUniformScales ?
+                (byte*)compressedTransformsClip+header.offsetToUniformScalesStartInBytes :
+                null;
 
             if (X86.Avx2.IsAvx2Supported)
             {
-                AVX.samplePoseBlendedAdd(compressedTransformsClip, compressedScalesClip, (float*)outputBuffer.GetUnsafePtr(), blendFactor, time, (byte)keyframeInterpolationMode);
+                AVX.samplePoseBlendedAdd(compressedTransformsClip, compressedScalesClip, (float*)outputBufferPtr, blendFactor, time, (byte)keyframeInterpolationMode);
             }
             else
             {
-                NoExtensions.samplePoseBlendedAdd(compressedTransformsClip,
-                                                  compressedScalesClip,
-                                                  (float*)outputBuffer.GetUnsafePtr(),
-                                                  blendFactor,
-                                                  time,
-                                                  (byte)keyframeInterpolationMode);
+                NoExtensions.samplePoseBlendedAdd(compressedTransformsClip, compressedScalesClip, (float*)outputBufferPtr, blendFactor, time, (byte)keyframeInterpolationMode);
             }
         }
 
@@ -389,6 +385,15 @@ namespace AclUnity
             if (!outputBuffer.IsCreated || outputBuffer.Length == 0)
                 throw new ArgumentException("outputBuffer is invalid");
             if (outputBuffer.Length < trackCount)
+                throw new ArgumentException("outputBuffer does not contain enough elements");
+        }
+
+        [Conditional("ENABLE_UNITY_COLLECTIONS_CHECKS")]
+        static void CheckOutputArrayIsSufficient(int outputBufferCount, short trackCount)
+        {
+            if (outputBufferCount <= 0)
+                throw new ArgumentException("outputBuffer is invalid");
+            if (outputBufferCount < trackCount)
                 throw new ArgumentException("outputBuffer does not contain enough elements");
         }
 
