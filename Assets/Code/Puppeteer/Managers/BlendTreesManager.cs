@@ -4,7 +4,6 @@ using Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
-using UnityEngine;
 
 namespace KVD.Puppeteer.Managers
 {
@@ -120,7 +119,7 @@ namespace KVD.Puppeteer.Managers
 			blendTree.blends[lastIndex] = math.select(blendTree.blends[lastIndex], 1f, x >= blendTree.clipPositions[lastIndex].x);
 		}
 
-		static void EvaluateCartesianGradiantBand(ref BlendTreeData blendTree, float2 parameter)
+		static void EvaluateCartesianGradiantBand(ref BlendTreeData blendTree, float2 requestPoint)
 		{
 			var totalWeight = 0f;
 
@@ -128,8 +127,8 @@ namespace KVD.Puppeteer.Managers
 			var weightsCount = clipPositions.Length;
 			for (var i = 0; i < weightsCount; i++)
 			{
-				var point_i = clipPositions[i];
-				var vec_is = parameter - point_i;
+				var clipPosition = clipPositions[i];
+				var clipToSample = requestPoint - clipPosition;
 				var weight = 1f;
 
 				for (var j = 0; j < weightsCount; j++)
@@ -139,15 +138,15 @@ namespace KVD.Puppeteer.Managers
 						continue;
 					}
 
-					var point_j = clipPositions[j];
-					var vec_ij = point_j - point_i;
+					var otherClipPosition = clipPositions[j];
+					var clipToOther = otherClipPosition - clipPosition;
 
-					var lensq_ij = math.dot(vec_ij, vec_ij);
-					var new_weight = math.dot(vec_is, vec_ij) / lensq_ij;
-					new_weight = 1f - new_weight;
-					new_weight = math.clamp(new_weight, 0f, 1f);
+					var clipToOtherLengthSq = math.dot(clipToOther, clipToOther);
+					var newWeight = math.dot(clipToSample, clipToOther) / clipToOtherLengthSq;
+					newWeight = 1f - newWeight;
+					newWeight = math.clamp(newWeight, 0f, 1f);
 
-					weight = math.min(weight, new_weight);
+					weight = math.min(weight, newWeight);
 				}
 
 				blendTree.blends[i] = weight;
@@ -161,19 +160,19 @@ namespace KVD.Puppeteer.Managers
 			}
 		}
 
-		static void EvaluatePolarGradiantBand(ref BlendTreeData blendTree, float2 parameter)
+		static void EvaluatePolarGradiantBand(ref BlendTreeData blendTree, float2 requestPoint)
 		{
 			const float kDirScale = 2f;
 
 			var totalWeight = 0f;
-			var sample_mag = math.length(parameter);
+			var requestLength = math.length(requestPoint);
 
 			var clipPositions = blendTree.clipPositions;
 			var weightsCount = clipPositions.Length;
 			for (var i = 0; i < weightsCount; i++)
 			{
-				var point_i = clipPositions[i];
-				var point_mag_i = math.length(point_i);
+				var clipPosition = clipPositions[i];
+				var clipPositionLength = math.length(clipPosition);
 
 				var weight = 1f;
 
@@ -184,36 +183,36 @@ namespace KVD.Puppeteer.Managers
 						continue;
 					}
 
-					var point_j = clipPositions[j];
-					var point_mag_j = math.length(point_j);
+					var otherClipPosition = clipPositions[j];
+					var otherClipPositionLength = math.length(otherClipPosition);
 
-					var ij_avg_mag = (point_mag_j + point_mag_i) * 0.5f;
+					var lengthsAverage = (otherClipPositionLength + clipPositionLength) * 0.5f;
 
 					// Calc angle and mag for i -> sample
-					var mag_is = (sample_mag - point_mag_i) / ij_avg_mag;
-					var angle_is = SignedAngle(point_i, parameter);
+					var lengthClipToRequest = (requestLength - clipPositionLength) / lengthsAverage;
+					var angleClipToRequest = SignedAngle(clipPosition, requestPoint);
 
 					// Calc angle and mag for i -> j
-					var mag_ij = (point_mag_j - point_mag_i) / ij_avg_mag;
-					var angle_ij = SignedAngle(point_i, point_j);
+					var lengthClipToOther = (otherClipPositionLength - clipPositionLength) / lengthsAverage;
+					var angleClipToOther = SignedAngle(clipPosition, otherClipPosition);
 
 					// Calc vec for i -> sample
-					float2 vec_is;
-					vec_is.x = mag_is;
-					vec_is.y = angle_is * kDirScale;
+					float2 polarClipToRequest;
+					polarClipToRequest.x = lengthClipToRequest;
+					polarClipToRequest.y = angleClipToRequest * kDirScale;
 
 					// Calc vec for i -> j
-					float2 vec_ij;
-					vec_ij.x = mag_ij;
-					vec_ij.y = angle_ij * kDirScale;
+					float2 polarClipToOther;
+					polarClipToOther.x = lengthClipToOther;
+					polarClipToOther.y = angleClipToOther * kDirScale;
 
 					// Calc weight
-					var lensq_ij = math.dot(vec_ij, vec_ij);
-					var new_weight = math.dot(vec_is, vec_ij) / lensq_ij;
-					new_weight = 1f - new_weight;
-					new_weight = math.clamp(new_weight, 0f, 1f);
+					var clipToOtherLengthSq = math.dot(polarClipToOther, polarClipToOther);
+					var newWeight = math.dot(polarClipToRequest, polarClipToOther) / clipToOtherLengthSq;
+					newWeight = 1f - newWeight;
+					newWeight = math.clamp(newWeight, 0f, 1f);
 
-					weight = math.min(new_weight, weight);
+					weight = math.min(newWeight, weight);
 				}
 
 				blendTree.blends[i] = weight;
