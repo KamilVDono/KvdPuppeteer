@@ -76,7 +76,8 @@ namespace KVD.Puppeteer.Managers
 
 			var skeletonGuid = _guids[sharedSkeletonIndex];
 			var data = _skeletonsData[skeletonGuid];
-			if (data.refCount == 1)
+			data.refCount--;
+			if (data.refCount == 0)
 			{
 				_sharedSkeletons.Release(sharedSkeletonIndex);
 				_guids[sharedSkeletonIndex] = default;
@@ -86,7 +87,6 @@ namespace KVD.Puppeteer.Managers
 			}
 			else
 			{
-				data.refCount--;
 				_skeletonsData[skeletonGuid] = data;
 			}
 		}

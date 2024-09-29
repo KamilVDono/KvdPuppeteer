@@ -7,7 +7,7 @@ namespace KVD.Puppeteer.Managers
 {
 	public class PuppeteerManager
 	{
-		const int PreAllocPuppets = 1024;
+		const int PreAllocPuppets = 1024 * 10;
 		static readonly ProfilerMarker RunSamplingJobMarker = new ProfilerMarker("PuppeteerManager.RunSamplingJob");
 		static readonly ProfilerMarker CompleteJobMarker = new ProfilerMarker("PuppeteerManager.CompleteJob");
 
@@ -34,7 +34,7 @@ namespace KVD.Puppeteer.Managers
 #if UNITY_EDITOR
 		[UnityEditor.InitializeOnLoadMethod]
 #else
-		[RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+		[UnityEngine.RuntimeInitializeOnLoadMethod(UnityEngine.RuntimeInitializeLoadType.SubsystemRegistration)]
 #endif
 		static void Initialize()
 		{
@@ -71,14 +71,11 @@ namespace KVD.Puppeteer.Managers
 		void RunAnimationSamples()
 		{
 			RunSamplingJobMarker.Begin();
-			// Chain
-
 			var collectWorldOffsetsJob = _worldOffsetsManager.CollectWorldOffsets(default);
-			_transitionsManager.RunTransitions();
-			// Run blending
+			var transitionJob = _transitionsManager.RunTransitions();
 			var evaluateBlendTreesHandle = _blendTreesManager.RunBlendTrees(default);
-			var fillJob = _statesManager.FillSamplingData(evaluateBlendTreesHandle);
-			var animationsHandle = _samplingManager.RunAnimationSamples(fillJob);
+			var fillJob = _statesManager.FillSamplingData(JobHandle.CombineDependencies(evaluateBlendTreesHandle, transitionJob));
+			var animationsHandle = _samplingManager.RunAnimationsSampling(fillJob);
 			var skeletonDependencies = JobHandle.CombineDependencies(collectWorldOffsetsJob, animationsHandle);
 			_jobHandle = _skeletonsManager.RunSyncTransformsJob(skeletonDependencies);
 

@@ -11,7 +11,7 @@ namespace Benchmarks
 	[BurstCompile]
 	public class SpawnSubjects : MonoBehaviour
 	{
-		[SerializeField, Range(1, 1_000_000)] uint _count = 10_000;
+		[SerializeField, Range(1, 1_000_000)] uint _count = 1_000;
 		[SerializeField, Range(10, 2_000)] uint _radius = 100;
 		[SerializeField] GameObject[] _subjects;
 
@@ -59,8 +59,8 @@ namespace Benchmarks
 			var positions = new Vector3[_count];
 			var rotations = new Quaternion[_count];
 
-			fixed (Vector3* positionsPtr = positions)
-			fixed (Quaternion* rotationsPtr = rotations)
+			fixed (Vector3* positionsPtr = &positions[0])
+			fixed (Quaternion* rotationsPtr = &rotations[0])
 			{
 				new FillSpawnDataJob
 					{

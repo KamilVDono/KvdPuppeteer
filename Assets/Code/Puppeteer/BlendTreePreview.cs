@@ -68,7 +68,7 @@ namespace KVD.Puppeteer
 
 			_isRunning = false;
 
-			StatesManager.Instance.RemoveState(_stateId);
+			StatesManager.Instance.RemoveState(_stateId, true);
 		}
 
 		void Update()
@@ -89,6 +89,7 @@ namespace KVD.Puppeteer
 			public uint Slot => _instance._slot;
 			public ushort BlendTreeId => _instance._blendTreeId;
 			public uint StateId => _instance._stateId;
+			public BlendTreeAsset BlendTreeAsset => _instance._blendTreeAsset;
 
 			public EditorAccess(BlendTreePreview instance)
 			{

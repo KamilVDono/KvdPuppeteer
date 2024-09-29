@@ -15,9 +15,9 @@ using UnityEngine.Rendering;
 namespace KandraRenderer {
     public class KandraRendererManager {
 #if UNITY_EDITOR
-        const int DebugMultiplier = 1;
+        const int DebugMultiplier = 4;
 #else
-        const int DebugMultiplier = 1;
+        const int DebugMultiplier = 4;
 #endif
         public const int RigBonesCapacity = 75_000 * DebugMultiplier;
         public const int RenderersCapacity = 10_000 * DebugMultiplier;
@@ -52,7 +52,8 @@ namespace KandraRenderer {
 #else
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
 #endif
-        static void Init() {
+        static void Init()
+        {
             Instance?.Dispose();
 
             Instance = new KandraRendererManager();

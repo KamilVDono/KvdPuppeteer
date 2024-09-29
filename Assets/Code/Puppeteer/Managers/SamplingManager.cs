@@ -14,6 +14,7 @@ namespace KVD.Puppeteer.Managers
 		UnsafeBitmask _takenSlots;
 		UnsafeList<uint> _bonesIndices;
 		UnsafeList<UnsafeList<SamplingDatum>> _blendingDatas;
+		UnsafeList<byte> _capacities;
 
 		public static SamplingManager Instance { get; private set; }
 
@@ -26,8 +27,11 @@ namespace KVD.Puppeteer.Managers
 			_bonesIndices = new UnsafeList<uint>(preAllocCount, Allocator.Domain);
 			_bonesIndices.Length = preAllocCount;
 
-			_blendingDatas = new UnsafeList<UnsafeList<SamplingDatum>>(preAllocCount, Allocator.Domain);
+			_blendingDatas = new UnsafeList<UnsafeList<SamplingDatum>>(preAllocCount, Allocator.Domain, NativeArrayOptions.ClearMemory);
 			_blendingDatas.Length = preAllocCount;
+
+			_capacities = new UnsafeList<byte>(preAllocCount, Allocator.Domain);
+			_capacities.Length = preAllocCount;
 		}
 
 		public uint RegisterPuppet(VirtualBones virtualBones)
@@ -44,6 +48,7 @@ namespace KVD.Puppeteer.Managers
 
 			_bonesIndices[slot] = virtualBones.SkeletonIndex;
 			var blendingData = new UnsafeList<SamplingDatum>(2, Allocator.Persistent);
+			_capacities[slot] = 0;
 
 			_blendingDatas[slot] = blendingData;
 
@@ -53,7 +58,9 @@ namespace KVD.Puppeteer.Managers
 		public void UnregisterPuppet(uint slot)
 		{
 			_takenSlots.Down(slot);
-			_blendingDatas[(int)slot].Dispose();
+			ref var blendingData = ref _blendingDatas.ElementAt((int)slot);
+			blendingData.Dispose();
+			blendingData = default;
 		}
 
 		public UnsafeArray<SamplingDatum> GetClipsBlends(uint animator)
@@ -64,20 +71,18 @@ namespace KVD.Puppeteer.Managers
 		public ClipsWriter GetClipsWriter()
 		{
 			var data = _blendingDatas.AsUnsafeArray();
-			// TODO: Chain?
-			new ClearSamplingDataJob
+			var clearJob = new ClearSamplingDataJob
 			{
 				blendingDatas = data
-			}.Run(_takenSlots.LastOne()+1);
-			return new ClipsWriter(data);
+			}.Schedule(_takenSlots.LastOne()+1, default);
+			return new ClipsWriter(clearJob, data);
 		}
 
-		public JobHandle RunAnimationSamples(JobHandle dependencies)
+		public JobHandle RunAnimationsSampling(JobHandle dependencies)
 		{
 			var maxIndex = _takenSlots.LastOne()+1;
 			return new SamplingJob
 			{
-				takenSlots = _takenSlots,
 				clips = ClipsManager.Instance.ClipData,
 
 				blendingDatas = _blendingDatas.AsUnsafeArray(),
@@ -88,29 +93,39 @@ namespace KVD.Puppeteer.Managers
 
 		public readonly struct ClipsWriter
 		{
-			readonly UnsafeArray<UnsafeList<SamplingDatum>> _blendingDatas;
+			public readonly JobHandle dependency;
+			readonly UnsafeArray<UnsafeList<SamplingDatum>.ParallelWriter> _blendingDatas;
 
-			internal ClipsWriter(UnsafeArray<UnsafeList<SamplingDatum>> blendingDatas)
+			internal ClipsWriter(JobHandle dependency, UnsafeArray<UnsafeList<SamplingDatum>> blendingDatas)
 			{
-				_blendingDatas = blendingDatas;
+				this.dependency = dependency;
+				_blendingDatas = new UnsafeArray<UnsafeList<SamplingDatum>.ParallelWriter>(blendingDatas.Length, Allocator.TempJob);
+				for (var i = 0u; i < blendingDatas.Length; i++)
+				{
+					_blendingDatas[i] = blendingDatas[i].AsParallelWriter();
+				}
 			}
 
-			public unsafe void AddClip(uint animator, ushort clipIndex, float blend, float time)
+			public unsafe void AddClip(uint puppet, ushort clipIndex, float blend, float time)
 			{
-				ref var blendingData = ref _blendingDatas.Ptr[animator];
-				blendingData.Add(new SamplingDatum
+				ref var blendingData = ref _blendingDatas.Ptr[puppet];
+				blendingData.AddNoResize(new SamplingDatum
 				{
 					clipIndex = clipIndex,
 					blend = blend,
 					time = time
 				});
 			}
+
+			public JobHandle Dispose(JobHandle dependencies)
+			{
+				return _blendingDatas.Dispose(dependencies);
+			}
 		}
 
 		[BurstCompile]
 		struct SamplingJob : IJobFor
 		{
-			public UnsafeBitmask takenSlots;
 			public UnsafeArray<AnimationClipData> clips;
 
 			public UnsafeArray<UnsafeList<SamplingDatum>> blendingDatas;
@@ -120,11 +135,6 @@ namespace KVD.Puppeteer.Managers
 
 			public void Execute(int index)
 			{
-				if (!takenSlots[(uint)index])
-				{
-					return;
-				}
-
 				var blendingData = blendingDatas[index];
 				if (blendingData.Length == 0)
 				{
@@ -168,6 +178,17 @@ namespace KVD.Puppeteer.Managers
 			public ushort clipIndex;
 			public float blend;
 			public float time;
+		}
+
+		public void EnsureCapacity(uint puppet, byte addedClips)
+		{
+			ref var capacity = ref _capacities.ElementAt((int)puppet);
+			capacity += addedClips;
+			ref var blendingData = ref _blendingDatas.ElementAt((int)puppet);
+			if (blendingData.Capacity < capacity)
+			{
+				blendingData.SetCapacity(_capacities[(int)puppet]);
+			}
 		}
 	}
 }

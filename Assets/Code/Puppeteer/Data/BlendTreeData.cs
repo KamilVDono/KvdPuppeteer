@@ -22,8 +22,8 @@ namespace KVD.Puppeteer.Data
 		{
 			Space1D,
 			Space2DTriangulated,
-			Space2DGradiantBand,
-			Space2DGradiantPolar
+			Space2DCartesianGradiantBand,
+			Space2DPolarGradiantBand
 		}
 	}
 }

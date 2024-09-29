@@ -144,7 +144,7 @@ namespace KandraRenderer {
                 {
                     transfroms = _transfroms,
                     bonesBuffer = (Bone*)_inputBonesBuffer.LockBufferForWrite<Bone>(0, (int)bonesCount).GetUnsafePtr()
-                }.Schedule(_takenSlots.LastOne()+1, 2, dependency);
+                }.ScheduleParallel(_takenSlots.LastOne()+1, 4, dependency);
                 _frameInFlight = true;
             }
         }
@@ -170,7 +170,7 @@ namespace KandraRenderer {
         }
 
         [BurstCompile]
-        struct ReadTransforms : IJobParallelFor {
+        struct ReadTransforms : IJobFor {
             public UnsafeArray<BonesData> transfroms;
 
             [NativeDisableUnsafePtrRestriction] public Bone* bonesBuffer;

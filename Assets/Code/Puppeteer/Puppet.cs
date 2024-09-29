@@ -1,4 +1,5 @@
-﻿using KVD.Puppeteer.Managers;
+﻿using System;
+using KVD.Puppeteer.Managers;
 using UnityEngine;
 
 namespace KVD.Puppeteer
@@ -7,7 +8,9 @@ namespace KVD.Puppeteer
 	public class Puppet : MonoBehaviour
 	{
 		[SerializeField] VirtualBones _bones;
+
 		uint _slot = unchecked((uint)-1);
+		Action _afterRegistration;
 
 		public uint Slot => _slot;
 
@@ -21,6 +24,9 @@ namespace KVD.Puppeteer
 			_bones.EnsureInitialized();
 
 			_slot = PuppeteerManager.Instance.RegisterPuppet(_bones);
+
+			_afterRegistration?.Invoke();
+			_afterRegistration = null;
 		}
 
 		void OnDisable()
@@ -30,6 +36,18 @@ namespace KVD.Puppeteer
 				return;
 			}
 			PuppeteerManager.Instance.UnregisterPuppet(_slot);
+		}
+
+		public void AfterRegistration(Action startAnimation)
+		{
+			if (_slot == unchecked((uint)-1))
+			{
+				_afterRegistration += startAnimation;
+			}
+			else
+			{
+				startAnimation();
+			}
 		}
 
 		public readonly struct EditorAccess

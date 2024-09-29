@@ -3,6 +3,7 @@ using KVD.Utils.DataStructures;
 using KVD.Utils.Extensions;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
+using UnityEngine;
 
 namespace KVD.Puppeteer.Managers
 {
@@ -30,7 +31,7 @@ namespace KVD.Puppeteer.Managers
 			_clipData.Length = 128;
 		}
 
-		public unsafe ushort RegisterClip(in SerializableGuid guid)
+		public ushort RegisterClip(in SerializableGuid guid)
 		{
 			var hash = guid.GetHashCode();
 			if (!_hashToClip.TryGetValue(hash, out var data))
@@ -49,6 +50,7 @@ namespace KVD.Puppeteer.Managers
 				_clipData[clipIndex] = clip;
 				_clipHashes[clipIndex] = hash;
 			}
+			data.refCount++;
 			_hashToClip[hash] = data;
 			return data.clipIndex;
 		}
@@ -76,9 +78,10 @@ namespace KVD.Puppeteer.Managers
 			if (data.refCount == 0)
 			{
 				_takenClips.Down(data.clipIndex);
+				_hashToClip.Remove(hash);
+				_clipHashes[data.clipIndex] = 0;
 				_clipData[data.clipIndex].Dispose();
 				_clipData[data.clipIndex] = default;
-				_clipHashes[data.clipIndex] = 0;
 			}
 			else
 			{

@@ -2,6 +2,7 @@
 using KVD.Puppeteer.Data;
 using KVD.Utils.DataStructures;
 using KVD.Utils.Extensions;
+using Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
 using UnityEngine;
@@ -34,6 +35,7 @@ namespace KVD.Puppeteer.Managers
 			{
 				return InvalidHandle;
 			}
+			SamplingManager.Instance.EnsureCapacity(puppet, 1);
 			return slot;
 		}
 
@@ -44,12 +46,22 @@ namespace KVD.Puppeteer.Managers
 			{
 				return InvalidHandle;
 			}
+			var clipsCount = BlendTreesManager.Instance.BlendTrees[blendTreeId].clips.Length;
+			SamplingManager.Instance.EnsureCapacity(puppet, (byte)clipsCount);
 			return slot;
 		}
 
-		public void RemoveState(uint stateIndex)
+		public void RemoveState(uint stateIndex, bool couldBeRemoved)
 		{
-			ref readonly var state = ref _states[stateIndex];
+			ref readonly var state = ref _states.TryGet(stateIndex, out var success);
+			if (!success)
+			{
+				if (!couldBeRemoved)
+				{
+					Debug.LogError($"Trying to remove invalid state {stateIndex}");
+				}
+				return;
+			}
 
 			if (state.Type == AnimationState.AnimationType.Clip)
 			{
@@ -86,8 +98,18 @@ namespace KVD.Puppeteer.Managers
 		public void UnregisterPuppet(uint puppet)
 		{
 			var search = new AnimationStatePuppetEquality(puppet);
-			foreach (var index in _states.array.FindAllIndicesRevers(search))
+			foreach (var index in _states.FindAllIndicesRevers(search))
 			{
+				ref readonly var state = ref _states.array[index];
+				if (state.Type == AnimationState.AnimationType.Clip)
+				{
+					ClipsManager.Instance.UnregisterClip(state.data);
+				}
+				else
+				{
+					BlendTreesManager.Instance.RemoveBlendTree(state.data);
+				}
+
 				_states.Release(index);
 			}
 			_currentStates[puppet] = InvalidHandle;
@@ -104,14 +126,19 @@ namespace KVD.Puppeteer.Managers
 		public JobHandle FillSamplingData(JobHandle dependency)
 		{
 			var blendTrees = BlendTreesManager.Instance.BlendTrees;
-			return new UpdateJob
+			var clipsWriter = SamplingManager.Instance.GetClipsWriter();
+
+			var combinedDependency = JobHandle.CombineDependencies(dependency, clipsWriter.dependency);
+			var updateJob = new UpdateJob
 			{
 				deltaTime = Time.deltaTime,
 				states = _states,
 				blendTrees = blendTrees,
 
-				clipsWriter = SamplingManager.Instance.GetClipsWriter(),
-			}.Schedule(dependency);
+				clipsWriter = clipsWriter,
+			}.ScheduleParallel(_states.JobScheduleLength, 64, combinedDependency);
+
+			return clipsWriter.Dispose(updateJob);
 		}
 
 		public struct BlendsWriter
@@ -124,7 +151,8 @@ namespace KVD.Puppeteer.Managers
 			}
 		}
 
-		struct UpdateJob : IJob
+		[BurstCompile]
+		struct UpdateJob : IJobFor
 		{
 			public float deltaTime;
 
@@ -133,36 +161,34 @@ namespace KVD.Puppeteer.Managers
 
 			public SamplingManager.ClipsWriter clipsWriter;
 
-			public void Execute()
+			public void Execute(int index)
 			{
-				for (var i = 0u; i < states.Length; i++)
+				var i = (uint)index;
+				if (!states.IsOccupied(i))
 				{
-					if (!states.IsOccupied(i))
-					{
-						continue;
-					}
+					return;
+				}
 
-					ref var state = ref states[i];
-					state.time += deltaTime;
+				ref var state = ref states[i];
+				state.time += deltaTime;
 
-					if (state.Type == AnimationState.AnimationType.Clip)
+				if (state.Type == AnimationState.AnimationType.Clip)
+				{
+					if (state.blend > 0)
 					{
-						if (state.blend > 0)
-						{
-							clipsWriter.AddClip(state.puppet, state.data, state.blend, state.time);
-						}
+						clipsWriter.AddClip(state.puppet, state.data, state.blend, state.time);
 					}
-					else
+				}
+				else
+				{
+					var tree = blendTrees[state.data];
+					for (var j = 0; j < tree.clips.Length; j++)
 					{
-						var tree = blendTrees[state.data];
-						for (var j = 0; j < tree.clips.Length; j++)
+						var clip = tree.clips[j];
+						var blend = tree.blends[j] * state.blend;
+						if (blend > 0)
 						{
-							var clip = tree.clips[j];
-							var blend = tree.blends[j] * state.blend;
-							if (blend > 0)
-							{
-								clipsWriter.AddClip(state.puppet, clip, blend, state.time);
-							}
+							clipsWriter.AddClip(state.puppet, clip, blend, state.time);
 						}
 					}
 				}

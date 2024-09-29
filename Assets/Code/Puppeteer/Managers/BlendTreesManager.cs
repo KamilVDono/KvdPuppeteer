@@ -4,6 +4,7 @@ using Unity.Burst;
 using Unity.Collections;
 using Unity.Jobs;
 using Unity.Mathematics;
+using UnityEngine;
 
 namespace KVD.Puppeteer.Managers
 {
@@ -69,7 +70,7 @@ namespace KVD.Puppeteer.Managers
 				blendTrees = _blendTrees,
 				parameters = _parameters,
 				takenBlendTrees = _takenBlendTrees
-			}.Schedule(_takenBlendTrees.LastOne()+1, dependencies);
+			}.ScheduleParallel(_takenBlendTrees.LastOne()+1, 16, dependencies);
 		}
 
 		static void EvaluateBlendTree(ref BlendTreeData blendTree, in float2 parameter)
@@ -77,6 +78,14 @@ namespace KVD.Puppeteer.Managers
 			if (blendTree.type == BlendTreeData.Type.Space1D)
 			{
 				Evaluate1DBlendTree(ref blendTree, parameter);
+			}
+			else if (blendTree.type == BlendTreeData.Type.Space2DCartesianGradiantBand)
+			{
+				EvaluateCartesianGradiantBand(ref blendTree, parameter);
+			}
+			else if (blendTree.type == BlendTreeData.Type.Space2DPolarGradiantBand)
+			{
+				EvaluatePolarGradiantBand(ref blendTree, parameter);
 			}
 			else
 			{
@@ -109,6 +118,118 @@ namespace KVD.Puppeteer.Managers
 
 			var lastIndex = blendTree.blends.Length - 1;
 			blendTree.blends[lastIndex] = math.select(blendTree.blends[lastIndex], 1f, x >= blendTree.clipPositions[lastIndex].x);
+		}
+
+		static void EvaluateCartesianGradiantBand(ref BlendTreeData blendTree, float2 parameter)
+		{
+			var totalWeight = 0f;
+
+			var clipPositions = blendTree.clipPositions;
+			var weightsCount = clipPositions.Length;
+			for (var i = 0; i < weightsCount; i++)
+			{
+				var point_i = clipPositions[i];
+				var vec_is = parameter - point_i;
+				var weight = 1f;
+
+				for (var j = 0; j < weightsCount; j++)
+				{
+					if (j == i)
+					{
+						continue;
+					}
+
+					var point_j = clipPositions[j];
+					var vec_ij = point_j - point_i;
+
+					var lensq_ij = math.dot(vec_ij, vec_ij);
+					var new_weight = math.dot(vec_is, vec_ij) / lensq_ij;
+					new_weight = 1f - new_weight;
+					new_weight = math.clamp(new_weight, 0f, 1f);
+
+					weight = math.min(weight, new_weight);
+				}
+
+				blendTree.blends[i] = weight;
+				totalWeight += weight;
+			}
+
+			var weightReciprocal = math.rcp(totalWeight);
+			for (var i = 0; i < weightsCount; i++)
+			{
+				blendTree.blends[i] *= weightReciprocal;
+			}
+		}
+
+		static void EvaluatePolarGradiantBand(ref BlendTreeData blendTree, float2 parameter)
+		{
+			const float kDirScale = 2f;
+
+			var totalWeight = 0f;
+			var sample_mag = math.length(parameter);
+
+			var clipPositions = blendTree.clipPositions;
+			var weightsCount = clipPositions.Length;
+			for (var i = 0; i < weightsCount; i++)
+			{
+				var point_i = clipPositions[i];
+				var point_mag_i = math.length(point_i);
+
+				var weight = 1f;
+
+				for (var j = 0; j < weightsCount; j++)
+				{
+					if (j == i)
+					{
+						continue;
+					}
+
+					var point_j = clipPositions[j];
+					var point_mag_j = math.length(point_j);
+
+					var ij_avg_mag = (point_mag_j + point_mag_i) * 0.5f;
+
+					// Calc angle and mag for i -> sample
+					var mag_is = (sample_mag - point_mag_i) / ij_avg_mag;
+					var angle_is = SignedAngle(point_i, parameter);
+
+					// Calc angle and mag for i -> j
+					var mag_ij = (point_mag_j - point_mag_i) / ij_avg_mag;
+					var angle_ij = SignedAngle(point_i, point_j);
+
+					// Calc vec for i -> sample
+					float2 vec_is;
+					vec_is.x = mag_is;
+					vec_is.y = angle_is * kDirScale;
+
+					// Calc vec for i -> j
+					float2 vec_ij;
+					vec_ij.x = mag_ij;
+					vec_ij.y = angle_ij * kDirScale;
+
+					// Calc weight
+					var lensq_ij = math.dot(vec_ij, vec_ij);
+					var new_weight = math.dot(vec_is, vec_ij) / lensq_ij;
+					new_weight = 1f - new_weight;
+					new_weight = math.clamp(new_weight, 0f, 1f);
+
+					weight = math.min(new_weight, weight);
+				}
+
+				blendTree.blends[i] = weight;
+				totalWeight += weight;
+			}
+
+			var weightReciprocal = math.rcp(totalWeight);
+			for (var i = 0; i < weightsCount; i++)
+			{
+				blendTree.blends[i] *= weightReciprocal;
+			}
+
+			float SignedAngle(float2 a, float2 b)
+			{
+				return math.atan2(a.x * b.y - a.y * b.x, a.x * b.x + a.y * b.y);
+			}
 		}
 
 		[BurstCompile]

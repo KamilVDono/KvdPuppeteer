@@ -1,6 +1,7 @@
 ﻿using System;
 using KVD.Utils.DataStructures;
 using KVD.Utils.Extensions;
+using Unity.Burst;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
 using Unity.Jobs;
@@ -31,7 +32,7 @@ namespace KVD.Puppeteer.Managers
 				{
 					if (_transitions[transitionIndex].fromState != toState)
 					{
-						StatesManager.Instance.RemoveState(_transitions[transitionIndex].fromState);
+						StatesManager.Instance.RemoveState(_transitions[transitionIndex].fromState, false);
 					}
 					_transitions.RemoveAt(transitionIndex);
 				}
@@ -56,28 +57,24 @@ namespace KVD.Puppeteer.Managers
 			StatesManager.Instance.SetCurrentState(animator, toState);
 		}
 
-		public void RunTransitions()
+		public unsafe JobHandle RunTransitions()
 		{
-			var completedTransitions = new UnsafeBitmask((uint)_transitions.Length, Allocator.Temp);
+			var completedTransitions = new UnsafeBitmask((uint)_transitions.Length, Allocator.TempJob);
 
 			var writer = StatesManager.Instance.GetBlendsWriter();
-			new DoTransitionsJob
+			var transitionsJob = new DoTransitionsJob
 			{
 				deltaTime = Time.deltaTime,
 				transitions = _transitions.AsUnsafeArray(),
 				completedTransitions = completedTransitions,
 				blendsWriter = writer
-			}.Run(_transitions.Length);
+			}.Schedule(_transitions.Length, default);
 
-			for (var i = _transitions.Length - 1; i >= 0; i--)
+			return new RemoveCompletedTransitionsJob
 			{
-				if (completedTransitions[i])
-				{
-					_transitions.RemoveAt(i);
-				}
-			}
-
-			completedTransitions.Dispose();
+				transitions = (UnsafeList<Transition>*)UnsafeUtility.AddressOf(ref _transitions),
+				completedTransitions = completedTransitions // Job will dispose it
+			}.Schedule(transitionsJob);
 		}
 
 		public void UnregisterPuppet(uint animator)
@@ -95,6 +92,7 @@ namespace KVD.Puppeteer.Managers
 			return index != StatesManager.InvalidHandle;
 		}
 
+		[BurstCompile]
 		struct DoTransitionsJob : IJobFor
 		{
 			public float deltaTime;
@@ -114,6 +112,25 @@ namespace KVD.Puppeteer.Managers
 				{
 					completedTransitions.Up(index);
 				}
+			}
+		}
+
+		[BurstCompile]
+		unsafe struct RemoveCompletedTransitionsJob : IJob
+		{
+			[NativeDisableUnsafePtrRestriction] public UnsafeList<Transition>* transitions;
+			public UnsafeBitmask completedTransitions;
+
+			public void Execute()
+			{
+				for (var i = transitions->Length - 1; i >= 0; i--)
+				{
+					if (completedTransitions[i])
+					{
+						transitions->RemoveAt(i);
+					}
+				}
+				completedTransitions.Dispose();
 			}
 		}
 

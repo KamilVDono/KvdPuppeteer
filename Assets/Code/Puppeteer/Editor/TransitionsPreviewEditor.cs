@@ -21,7 +21,7 @@ namespace KVD.Puppeteer.Editor
 			{
 				var clipId = ClipsManager.Instance.RegisterClip(access.Clip.guid);
 				var stateId = StatesManager.Instance.AddClipState(puppetIndex, clipId);
-				PuppeteerManager.Instance.TransitionsManager.StartTransition(puppetIndex, stateId, access.Duration);
+				TransitionsManager.Instance.StartTransition(puppetIndex, stateId, access.Duration);
 			}
 		}
 	}

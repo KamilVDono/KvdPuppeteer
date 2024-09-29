@@ -36,11 +36,13 @@ namespace KVD.Puppeteer.Editor
 			{
 				using (new EditorGUI.DisabledScope(true))
 				{
+					var asset = access.BlendTreeAsset;
+					var clips = asset.clips;
 					var blendTree = BlendTreesManager.Instance.BlendTrees[access.BlendTreeId];
 					var blends = blendTree.blends;
 					for (var i = 0; i < blends.Length; i++)
 					{
-						EditorGUILayout.Slider(blends[i], 0f, 1f);
+						EditorGUILayout.Slider(clips[i].clipAsset.name, blends[i], 0f, 1f);
 					}
 				}
 			}
